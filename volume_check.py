@@ -1,6 +1,5 @@
 """
-
-Volume Monitor
+Client Volume Monitor
 
 """
 
@@ -9,11 +8,13 @@ import pandas as pd
 import pyodbc
 from pandas import ExcelWriter
 
+# SQL Context
 conn = pyodbc.connect(r'DRIVER={ODBC Driver 13 for SQL Server};'
                       r'SERVER=businteldw.stratose.com,1565;'
                       r'DATABASE=CAIDataWarehouse;'
                       r'Trusted_Connection=yes')
 
+# SQL Query Def
 sql = '''
     with cte_daily as
     (
@@ -69,11 +70,20 @@ sql = '''
 
 '''
 
+# Get SQL data
 df = pd.read_sql(sql, conn)
 
-df['%Diff_Claims'] = df['Claims'] / df['Claims_prev'] - 1
-df['%Diff_Charges'] = df['Charges'] / df['Charges_prev'] - 1
+# Calculations
+df['pDiff_Claims'] = df['Claims'] / df['Claims_prev'] - 1
+df['pDiff_Charges'] = df['Charges'] / df['Charges_prev'] - 1
 
+df_flag = df[(df.pDiff_Charges >= .25) or (df.pDiff_Charges <= -.25)]
+df_med = df_flag[df_flag.Product in ["Group Health", "Medicare Pricing Solutions", "Claim Settlement (PPN)"]]
+df_dent = df_flag[df_flag.Product == "Dental"]
+df_wc = df_flag[df_flag.Product == "Workers Comp"]
+
+# Write results to excel
 writer = pd.ExcelWriter(r'C:\Users\pallen\Documents\Volume_Check_test.xlsx')
 df.to_excel(writer, 'Sheet1')
 writer.save()
+
