@@ -14,7 +14,7 @@ import calendar
 y = dt.now().year
 m = dt.now().month
 d = dt.now().day
-currentMonthID = y*100 + m
+currMonthID = y*100 + m
 currMonthDays = calendar.monthrange(dt.now().year, dt.now().month)
 mtd = (currMonthDays[1]/d)
 
@@ -85,14 +85,11 @@ df['pDiff_Charges'] = df['Charges_MTD'] / df['Charges_prev'] - 1
 df = df[df['DateMonthID'] == currMonthID]
 
 df_flag = df[(df.pDiff_Charges >= .25) | (df.pDiff_Charges <= -.25)]
-df_grp = df_flag.groupby('Product')
 
-df_med = df_grp.get_group('Group Health')
-    df_med = df_med.append(df_grp.get_group('Claim Settlement (PPN)'), ignore_index=True)
-        df_med = df_med.append(df_grp.get_group('Medicare Pricing Solutions'), ignore_index=True)
-
-df_dent = df_grp.get_group('Dental')
-df_wc = df_grp.get_group('Workers Comp')
+df_med = df_flag[(df_flag.Product == "Group Health") | (df_flag.Product == "Claim Settlement (PPN)")
+                 | (df_flag.Product == "Medicare Pricing Solutions")]
+df_dent = df_flag[df_flag.Product == "Dental"]
+df_wc = df_flag[df_flag.Product == "Workers Comp"]
 
 # Write results to excel
 writer = pd.ExcelWriter(r'C:\Users\pallen\Documents\Volume_Check_test.xlsx')
@@ -105,5 +102,5 @@ df_wc.to_excel(writer, 'WC')
 writer.save()
 
 # check
-total = len(df_flag)
-total == len(df_med) + len(df_dent) + len(df_wc)
+# total = len(df_flag)
+# total == len(df_med) + len(df_dent) + len(df_wc)
