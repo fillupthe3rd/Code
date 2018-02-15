@@ -8,18 +8,18 @@ import pandas as pd
 import pyodbc
 from pandas import ExcelWriter
 
-# SQL Context
+# SQL
 conn = pyodbc.connect(r'DRIVER={ODBC Driver 13 for SQL Server};'
                       r'SERVER=businteldw.stratose.com,1565;'
                       r'DATABASE=CAIDataWarehouse;'
                       r'Trusted_Connection=yes')
 
-# SQL Query Def
 sql = '''
     with cte_daily as
     (
         select dc.ClientParentNameShort
             , dpr.Product
+            , dpr.DimProductKey
             --, dd.DateDay
             , dd.DateMonthID
             , sum(fc.ClaimCount) Claims
@@ -47,12 +47,14 @@ sql = '''
             dc.ClientParentNameShort
             , dpr.Product
             , dd.DateMonthID
+            , dpr.DimProductKey
             --, dd.DateDay
         
     )
     
     select c.ClientParentNameShort
         , c.Product
+        , c.DimProductKey
         , c.DateMonthID
         , c.Claims
         , c.Charges
@@ -70,20 +72,31 @@ sql = '''
 
 '''
 
-# Get SQL data
 df = pd.read_sql(sql, conn)
+conn.close()
 
-# Calculations
+# Calc and split
 df['pDiff_Claims'] = df['Claims'] / df['Claims_prev'] - 1
 df['pDiff_Charges'] = df['Charges'] / df['Charges_prev'] - 1
 
-df_flag = df[(df.pDiff_Charges >= .25) or (df.pDiff_Charges <= -.25)]
-df_med = df_flag[df_flag.Product in ["Group Health", "Medicare Pricing Solutions", "Claim Settlement (PPN)"]]
-df_dent = df_flag[df_flag.Product == "Dental"]
-df_wc = df_flag[df_flag.Product == "Workers Comp"]
+df_flag = df[(df.pDiff_Charges >= .25) | (df.pDiff_Charges <= -.25)]
+df_grp = df_flag.groupby('Product')
+
+df_med = df_grp.get_group('Group Health')
+    df_med = df_med.append(df_grp.get_group('Claim Settlement (PPN)'))
+        df_med = df_med.append(df_grp.get_group('Medicare Pricing Solutions'))
+
+df_dent = df_grp.get_group('Dental')
+df_wc = df_grp.get_group('Workers Comp')
 
 # Write results to excel
 writer = pd.ExcelWriter(r'C:\Users\pallen\Documents\Volume_Check_test.xlsx')
 df.to_excel(writer, 'Sheet1')
+
 writer.save()
 
+
+# check
+
+total = len(df_flag)
+total == len(df_med) + len(df_dent) + len(df_wc)
