@@ -1,18 +1,13 @@
-"""
-Client Volume Monitor
-
-"""
-
 import numpy as np
 import pandas as pd
 from pandas import TimeGrouper
-import pyodbc
 from pandas import ExcelWriter
-from datetime import datetime as dt
+import pyodbc
 import calendar
 from matplotlib import pyplot as plt
+from datetime import datetime as dt
 
-
+# VarDec
 y = dt.now().year
 m = dt.now().month
 d = dt.now().day
@@ -25,16 +20,23 @@ conn = pyodbc.connect(r'DRIVER={ODBC Driver 13 for SQL Server};'
                       r'SERVER=businteldw.stratose.com,1565;'
                       r'DATABASE=CAIDataWarehouse;'
                       r'Trusted_Connection=yes')
-
 sql = '''
     with cte_daily as
     (
         select dc.ClientParentNameShort
             , dpr.Product
-            , dd.DateMonthID
+            , grp = 
+                case dpr.Product
+                    when 'Dental' then 'Dental'
+                    when 'Workers Comp' then 'WC'
+                    else 'Group Health'
+                end
+            , dd.DateMonthID 
+            , dd.DateWeekID
+            , dd.DateDay
             , sum(fc.ClaimCount) Claims
             , sum(fc.CMAllowed) Charges
-            
+    
         from FactClaim fc
             join DimDate dd on fc.dimdatereceivedkey = dd.dimdatekey
             join dimclient dc on fc.dimclientkey = dc.dimclientkey
@@ -46,30 +48,35 @@ sql = '''
             join dimproduct dpr on fc.dimproductkey = dpr.dimproductkey
             join dimclaimtype dct on fc.dimclaimtypekey = dct.dimclaimtypekey
             join DimClaimStatus dcs on fc.DimClaimStatusKey = dcs.DimClaimStatusKey
-    
+        
         where 
             dce.ClaimEligible = 'Eligible'
                 and dd.DateDay between (convert(date, getdate() - 120)) and (convert(date, getdate()))
-              
+        
         group by 
             dc.ClientParentNameShort
             , dpr.Product
-            , dd.DateMonthID  
+            , dd.DateMonthID
+            , dd.DateWeekID  
+            , dd.DateDay
     )
     
-    select c.ClientParentNameShort
-        , c.Product
-        , c.DateMonthID
-        , c.Claims
-        , c.Charges
-        , lag(c.Claims, 1) over(partition by c.ClientParentNameShort, c.Product order by c.DateMonthID) Claims_prev
-        , lag(c.Charges, 1) over(partition by c.ClientParentNameShort, c.Product order by c.DateMonthID) Charges_prev
-        , c.Claims - (lag(c.Claims, 1) over(partition by c.ClientParentNameShort, c.Product order by c.DateMonthID)) as diff_claims
-        , c.Charges - (lag(c.Charges, 1) over(partition by c.ClientParentNameShort, c.Product order by c.DateMonthID)) as diff_charges
-        
-    from cte_daily c 
+select c.ClientParentNameShort
+    , c.Product
+    , c.grp
+    , c.DateMonthID
+    , c.DateWeekID
+    , c.DateDay
+    , c.Claims
+    , c.Charges
+    , lag(c.Claims, 1) over(partition by c.ClientParentNameShort, c.Product order by c.DateMonthID) Claims_prev
+    , lag(c.Charges, 1) over(partition by c.ClientParentNameShort, c.Product order by c.DateMonthID) Charges_prev
+    , c.Claims - (lag(c.Claims, 1) over(partition by c.ClientParentNameShort, c.Product order by c.DateMonthID)) as diff_claims
+    , c.Charges - (lag(c.Charges, 1) over(partition by c.ClientParentNameShort, c.Product order by c.DateMonthID)) as diff_charges
     
-    order by c.ClientParentNameShort, c.Product, c.DateMonthID
+from cte_daily c 
+        
+;
 '''
 
 df = pd.read_sql(sql, conn)
@@ -80,7 +87,7 @@ df['Claims_MTD'] = df['Claims']*mtd
 df['Charges_MTD'] = df['Charges']*mtd
 df['pDiff_Claims'] = df['Claims_MTD'] / df['Claims_prev'] - 1
 df['pDiff_Charges'] = df['Charges_MTD'] / df['Charges_prev'] - 1
-df = df[df['DateMonthID'] == currMonthID]
+df_curr = df[df['DateMonthID'] == currMonthID]
 
 df_flag = df[(df.pDiff_Charges >= .25) | (df.pDiff_Charges <= -.25)]
 
@@ -102,3 +109,12 @@ writer.save()
 # check
 # total = len(df_flag)
 # total == len(df_med) + len(df_dent) + len(df_wc)
+
+
+dfw = df.groupby('DateWeekID').agg(np.sum)
+dfg.set_index('DateWeekID')
+
+
+dfg.plot(style='k', legend=False)
+plt.show()
+
