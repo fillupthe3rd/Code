@@ -13,6 +13,9 @@ import calendar
 from matplotlib import pyplot as plt
 from functools import lru_cache
 import xlsxwriter
+import openpyxl
+from openpyxl import workbook, worksheet, load_workbook
+from openpyxl.styles import Border, Side, PatternFill, Font, GradientFill, Alignment
 
 # Declarations
 y = dt.now().year
@@ -91,7 +94,7 @@ dfDent = dfFlag[dfFlag.Grouped == "Dental"]
 dfWC = dfFlag[dfFlag.Grouped == "WC"]
 
 # Write results to excel
-writer = pd.ExcelWriter(r'C:\Users\pallen\Documents\Volume_Check_test.xlsx', engine='xlsxwriter')
+writer = pd.ExcelWriter(r'C:\Users\pallen\Documents\Volume_Check_test.xlsx', engine='openpyxl')
 
 dfMed.to_excel(writer,'Medical', startrow=1, startcol=1, index=False)
 dfDent.to_excel(writer, 'Dental', startrow=1, startcol=1, index=False)
@@ -99,8 +102,48 @@ dfWC.to_excel(writer, 'WC', startrow=1, startcol=1, index=False)
 
 writer.save()
 
-workbook = writer.book
-worksheet = workbook.sheet['Medical']
+wb = load_workbook(r'C:\Users\pallen\Documents\Volume_Check_test.xlsx')
+ws = wb.get_sheet_by_name('Medical')
 
-worksheet.set_zoom(90)
-writer.save()
+
+def style_range(ws, cell_range, border=Border(), fill=None, font=None, alignment=None):
+
+    top = Border(top=border.top)
+    left = Border(left=border.left)
+    right = Border(right=border.right)
+    bottom = Border(bottom=border.bottom)
+
+    first_cell = ws[cell_range.split(":")[0]]
+    if alignment:
+        ws.merge_cells(cell_range)
+        first_cell.alignment = alignment
+
+    rows = ws[cell_range]
+    if font:
+        first_cell.font = font
+
+    for cell in rows[0]:
+        cell.border = cell.border + top
+    for cell in rows[-1]:
+        cell.border = cell.border + bottom
+
+    for row in rows:
+        l = row[0]
+        r = row[-1]
+        l.border = l.border + left
+        r.border = r.border + right
+        if fill:
+            for c in row:
+                c.fill = fill
+
+
+thin = Side(border_style="thin", color="000000")
+border = Border(top=thin, left=thin, right=thin, bottom=thin)
+fill = PatternFill(fill_type="solid", start_color="662766", end_color="662766")
+font = Font(color="FFFFFF")
+al = Alignment(horizontal="center", vertical="center")
+
+
+style_range(ws, 'B2:N2', border=border, fill=fill, font=font, alignment=al)
+
+wb.save(r'C:\Users\pallen\Documents\Volume_Check_style.xlsx')
