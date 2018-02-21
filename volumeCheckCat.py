@@ -1,5 +1,5 @@
 """
-Client Volume Monitor
+Client Service Category Vol/KPI Monitor
 
 """
 
@@ -10,14 +10,15 @@ import pyodbc
 from pandas import ExcelWriter
 from datetime import datetime as dt
 import calendar
-from matplotlib import pyplot as plt
+import matplotlib.pyplot as plt
 from functools import lru_cache
 import xlsxwriter
-import openpyxl
-from openpyxl import workbook, worksheet, load_workbook
-from openpyxl.styles import NamedStyle, Border, Side, PatternFill, Font, GradientFill, Alignment
-from openpyxl.compat import range
-from openpyxl.utils import get_column_interval
+from xlsxwriter import workbook, worksheet
+
+# import openpyxl
+# from openpyxl import workbook, worksheet, load_workbook
+# from openpyxl.styles import NamedStyle, Border, Side, PatternFill, Font, GradientFill, Alignment
+# from openpyxl.compat import range
 
 # Declarations
 y = dt.now().year
@@ -27,83 +28,104 @@ currMonthID = y * 100 + m
 currMonthDays = calendar.monthrange(y, m)
 mtd = (currMonthDays[1] / d)
 
-# SQL
-conn = pyodbc.connect(r'DRIVER={ODBC Driver 13 for SQL Server};'
-                      r'SERVER=businteldw.stratose.com,1565;'
-                      r'DATABASE=CAIDataWarehouse;'
-                      r'Trusted_Connection=yes')
 
-sql = '''
-    select dc.ClientParentNameShort
-        , Grouped = 
-        case dpr.Product
-            when 'Dental' then 'Dental'
-            when 'Workers Comp' then 'WC'
-            else 'Medical'
-        end
-        --, dpr.Product
-        , dd.DateMonthID 
-        , sum(fc.ClaimCount) Claims
-        , sum(fc.CMAllowed) Charges
-            
-    from FactClaim fc
-        join DimDate dd on fc.dimdatereceivedkey = dd.dimdatekey
-        join dimclient dc on fc.dimclientkey = dc.dimclientkey
-        join dimclaimeligible dce on fc.dimclaimeligiblekey = dce.dimclaimeligiblekey
-        join dimdiscountmethod ddm on fc.dimdiscountmethodkey = ddm.dimdiscountmethodkey
-        join dimprovider dp on fc.dimproviderkey = dp.dimproviderkey
-        join dimservicetypecategory dstc on fc.dimservicetypecategorykey = dstc.dimservicetypecategorykey
-        join dimnetwork dn on fc.dimnetworkkey = dn.dimnetworkkey
-        join dimproduct dpr on fc.dimproductkey = dpr.dimproductkey
-        join dimclaimtype dct on fc.dimclaimtypekey = dct.dimclaimtypekey
-        join DimClaimStatus dcs on fc.DimClaimStatusKey = dcs.DimClaimStatusKey
-    
-    where 
-        dce.ClaimEligible = 'Eligible'
-            and dd.DateDay between (convert(date, getdate() - 70)) and (convert(date, getdate()))
-              
-    group by dc.ClientParentNameShort
-        , dpr.Product
-        , dd.DateMonthID
-    
-    order by dc.ClientParentNameShort
-        , dpr.Product
-        , dd.DateMonthID
+def SQLpull():
+    conn = pyodbc.connect(r'DRIVER={ODBC Driver 13 for SQL Server};'
+                          r'SERVER=businteldw.stratose.com,1565;'
+                          r'DATABASE=CAIDataWarehouse;'
+                          r'Trusted_Connection=yes')
+    sql = '''
+        select --dc.ClientParentNameShort Client
+            --, dst.CategoryDesc Category
+            --, dd.DateMonthSSRS Month
+            --, 
+            dd.DateDay 
+            , count(f.CMID) Claims
+            , sum(f.CMAllowed) Allowed
+            , sum(f.CMAllowedHit) Hit
+            , sum(f.LineSavings) Savings
+            , sum(f.CMAllowedhit)/sum(f.CMAllowed) HitRate
+            , sum(f.LineSavings)/sum(f.CMAllowedHit) SaveRate
+            , sum(f.LineSavings)/sum(f.CMAllowed) SaveRateEff
+        
+        
+        from v_FactClaimLine f 
+            join DimDate dd on f.dimdatereceivedkey = dd.dimdatekey
+            join dimclient dc on f.dimclientkey = dc.dimclientkey
+            join dimclaimeligible dce on f.dimclaimeligiblekey = dce.dimclaimeligiblekey
+            join dimservicetype dst on f.dimservicetypekey = dst.dimservicetypekey
+            join dimproduct dpr on f.dimproductkey = dpr.dimproductkey
+            join dimclaimtype dct on f.dimclaimtypekey = dct.dimclaimtypekey
+            join DimProvider prov on f.DimProviderKey = prov.DimProviderKey
+        
+        where dce.ClaimEligible = 'Eligible'
+            and dd.DateDay between (convert(date, getdate() - 30)) and (convert(date, getdate()))
+            and dc.ClientParentNameShort = 'Cigna East'
+            and dst.CategoryDesc = 'Anesthesia'
+        
+        group by --dc.ClientParentNameShort
+            --, dst.CategoryDesc
+            --, dd.DateMonthSSRS
+            --, 
+            dd.DateDay
+        
+        order by --dc.ClientParentNameShort
+            --, dst.CategoryDesc
+            --, dd.DateMonthSSRS
+            --, 
+            dd.DateDay
+    '''
 
-'''
+    df = pd.read_sql(sql, conn)
+    df = df.set_index('DateDay')
+    conn.close()
+    return df
 
-df1 = pd.read_sql(sql, conn)
-conn.close()
 
-# Calcs
-df = df1.set_index(['ClientParentNameShort', 'Grouped', 'DateMonthID'])
-df['claimsMTD'] = df['Claims'] * mtd
-df['chargesMTD'] = df['Charges'] * mtd
-df['lagClaim'] = df['Claims'].shift(1)
-df['lagCharge'] = df['Charges'].shift(1)
-df['diffClaim'] = df['claimsMTD'] - df['lagClaim']
-df['diffCharge'] = df['chargesMTD'] - df['lagCharge']
-df.dropna(inplace=True)
-df.reset_index(inplace=True)
-df = df[df['DateMonthID'] == currMonthID]
-df['claims%Lag'] = df['claimsMTD'] / df['lagClaim'] - 1
-df['charges%Lag'] = df['chargesMTD'] / df['lagCharge'] - 1
 
-dfFlag = df[(df['charges%Lag'] >= .25) | (df['charges%Lag'] <= -.25)]
+def munge(df):
+    df = df.set_index('DateDay')
+    return df
 
-dfMed = dfFlag[dfFlag.Grouped == "Medical"]
-dfDent = dfFlag[dfFlag.Grouped == "Dental"]
-dfWC = dfFlag[dfFlag.Grouped == "WC"]
 
-# Write results to excel
-writer = pd.ExcelWriter(r'C:\Users\pallen\Documents\VolumeCheck.xlsx', engine='xlsxwriter')
+def toExcel():
 
-dfMed.to_excel(writer, 'Medical', startrow=2, startcol=1, index=False)
-dfDent.to_excel(writer, 'Dental', startrow=1, startcol=1, index=False)
-dfWC.to_excel(writer, 'WC', startrow=1, startcol=1, index=False)
+    dfKPI = df.loc[:, 'HitRate':]
+    writer = pd.ExcelWriter(r'C:\Users\pallen\Documents\VolumeCheck.xlsx', engine='xlsxwriter')
 
-writer.save()
+    dfKPI.to_excel(writer, sheet_name='Anesthesia')
 
+    workbook = writer.book
+    worksheet = writer.sheets['Anesthesia']
+
+    chart = workbook.add_chart({'type': 'line'})
+
+    #     [sheetname, first_row, first_col, last_row, last_col]
+    chart.add_series({'values': '=Anesthesia!$B$2:$D$31'})
+
+    worksheet.insert_chart('F2', chart)
+
+    writer.save()
+
+    return
+
+def toExcelopen():
+    writer = pd.ExcelWriter(r'C:\Users\pallen\Documents\VolumeCheck.xlsx', engine='openpyxl')
+    wb = load_workbook(writer)
+    dfTest.to_excel(writer, 'Anesthesia', startrow=0, startcol=0)
+    ws = wb.active
+
+    c1 = LineChart()
+    data = Reference(ws, min_col=2, min_row=1, max_col=2, max_row=rowCount)
+    c1.add_data(data, titles_from_data=True)
+
+    ws.add_chart(c1, "D2")
+    writer.save()
+    workbook.close()
+
+    return
+
+df1.pivot(index='DateDay', values='SaveP').plot(kind='bar')
 
 def style():
     wb = load_workbook(r'C:\Users\pallen\Documents\VolumeCheck.xlsx')
@@ -135,5 +157,7 @@ def style():
 
     return 0
 
+
+def plot(client, category):
 
 
