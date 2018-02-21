@@ -98,7 +98,7 @@ dfWC = dfFlag[dfFlag.Grouped == "WC"]
 # Write results to excel
 writer = pd.ExcelWriter(r'C:\Users\pallen\Documents\VolumeCheck.xlsx', engine='xlsxwriter')
 
-dfMed.to_excel(writer, 'Medical', startrow=2, startcol=1, index=False)
+dfMed.to_excel(writer, 'Medical', startrow=1, startcol=1, index=False)
 dfDent.to_excel(writer, 'Dental', startrow=1, startcol=1, index=False)
 dfWC.to_excel(writer, 'WC', startrow=1, startcol=1, index=False)
 
