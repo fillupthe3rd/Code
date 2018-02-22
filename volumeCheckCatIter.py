@@ -15,15 +15,17 @@ import matplotlib.pyplot as plt
 from functools import lru_cache
 from datetime import datetime as dt
 import calendar
+import pyarrow as pa
 
 # Declarations
 # List of clients and categories to be included
 client = 'Cigna East'
-category = 'Anesthesia'
+catList = ['Anesthesia', 'Ambulatory Surgical Care']
+numCats = len(catList)
 
 
 # Connect to and query SQL server for given Client & Service Category
-def SQLpull(client, category):
+def readSQL(client, category):
 
     # SQl context
     conn = pyodbc.connect(r'DRIVER={ODBC Driver 13 for SQL Server};'
@@ -70,19 +72,13 @@ def SQLpull(client, category):
             --, dd.DateMonthSSRS
             --, 
             dd.DateDay
-    ''' % (client, category)
+    ''' % (client, catList[0])
 
     # Read SQL data, set date as index, close connection to server
     df = pd.read_sql(sql, conn)
     df = df.set_index('DateDay')
     conn.close()
 
-    return df
-
-
-# Calculated columns
-def calc(df):
-    df = df.set_index('DateDay')
     return df
 
 
@@ -94,14 +90,16 @@ def toExcel(df, sheet):
     rowCount = len(df.index)
 
     writer = pd.ExcelWriter(r'C:\Users\pallen\Documents\VolumeCheck.xlsx', engine='xlsxwriter')
+
+    dfKPI.to_excel(writer, sheet_name=sheet, startrow=1, startcol=1)
+
+    '''
     workbook = writer.book
-    worksheet = writer.sheets['Anesthesia']
-
-    dfKPI.to_excel(writer, sheet_name='Anesthesia', startrow=1, startcol=1)
-
+    worksheet = writer.sheets[sheet]
     chart = workbook.add_chart({'type': 'line'})
-    chart.add_series({'values': '=Anesthesia!$B$2:$D$%s'})
+    chart.add_series({'values': '=%s!$B$2:$D$%d'}) % (sheet, rowCount)
     worksheet.insert_chart('F2', chart)
+    '''
 
     format1 = workbook.add_format({'num_format': '$#,##0'})
     format2 = workbook.add_format({'num_format': '0%'})
@@ -114,30 +112,10 @@ def toExcel(df, sheet):
     return
 
 
-
-df1.pivot(index='DateDay', values='SaveP').plot(kind='bar')
-
-
-
-def plot(client, category):
-    def toExcelopen():
-        writer = pd.ExcelWriter(r'C:\Users\pallen\Documents\VolumeCheck.xlsx', engine='openpyxl')
-        wb = load_workbook(writer)
-        dfTest.to_excel(writer, 'Anesthesia', startrow=0, startcol=0)
-        ws = wb.active
-
-        c1 = LineChart()
-        data = Reference(ws, min_col=2, min_row=1, max_col=2, max_row=rowCount)
-        c1.add_data(data, titles_from_data=True)
-
-        ws.add_chart(c1, "D2")
-        writer.save()
-        workbook.close()
-
-        return
-    return
+for i in range(0, numCats):
+    df = readSQL(client, catList[i])
+    toExcel(df, catList[i])
 
 
-for i in range(0, len(client)):
-    for j in range(0, len(category)):
-        df = SQLpull(client[i], category[j])
+cat = catList[0]
+readSQL(client, cat)
