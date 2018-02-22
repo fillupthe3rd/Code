@@ -4,32 +4,20 @@ Client Service Category Vol/KPI Monitor
 """
 
 import numpy as np
+import pyodbc
 import pandas as pd
 from pandas import TimeGrouper
-import pyodbc
 from pandas import ExcelWriter
-from datetime import datetime as dt
-import calendar
+import xlsxwriter
 import matplotlib.pyplot as plt
 from functools import lru_cache
-import xlsxwriter
-from xlsxwriter import workbook, worksheet
+from datetime import datetime as dt
+import calendar
 
-# import openpyxl
-# from openpyxl import workbook, worksheet, load_workbook
-# from openpyxl.styles import NamedStyle, Border, Side, PatternFill, Font, GradientFill, Alignment
-# from openpyxl.compat import range
-
-# Declarations
-y = dt.now().year
-m = dt.now().month
-d = dt.now().day
-currMonthID = y * 100 + m
-currMonthDays = calendar.monthrange(y, m)
-mtd = (currMonthDays[1] / d)
-
-
+# Connect to and query SQL server for given Client & Service Category
 def SQLpull():
+
+    # SQl context
     conn = pyodbc.connect(r'DRIVER={ODBC Driver 13 for SQL Server};'
                           r'SERVER=businteldw.stratose.com,1565;'
                           r'DATABASE=CAIDataWarehouse;'
@@ -76,9 +64,11 @@ def SQLpull():
             dd.DateDay
     '''
 
+    # Read SQL data, set index date day, close connection to server
     df = pd.read_sql(sql, conn)
     df = df.set_index('DateDay')
     conn.close()
+
     return df
 
 
@@ -89,6 +79,7 @@ def munge(df):
 
 
 def toExcel():
+
 
     dfKPI = df.loc[:, 'HitRate':]
     writer = pd.ExcelWriter(r'C:\Users\pallen\Documents\VolumeCheck.xlsx', engine='xlsxwriter')
